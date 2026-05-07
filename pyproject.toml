@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-orchestrator"
+version = "0.1.0"
+description = "Automate trial-and-error of running LLMs locally with intelligent retry and adaptive degradation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "llm-orchestrator contributors"}
+]
+keywords = ["llm", "vllm", "deployment", "orchestration", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "httpx>=0.24",
+    "huggingface-hub>=0.17",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "typer[all]>=0.9",
+    "transformers>=4.35",
+    "torch>=2.0",
+    "safetensors>=0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+    "ruff>=0.1",
+    "black>=23.0",
+]
+
+[project.scripts]
+llm-orchestrate = "llm_orchestrator.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/your-org/llm-orchestrator"
+Documentation = "https://github.com/your-org/llm-orchestrator#readme"
+Repository = "https://github.com/your-org/llm-orchestrator.git"
+Issues = "https://github.com/your-org/llm-orchestrator/issues"
+
+[tool.setuptools]
+packages = ["llm_orchestrator"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+exclude = ["tests/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+source = ["llm_orchestrator"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]  # line too long (handled by black)
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
