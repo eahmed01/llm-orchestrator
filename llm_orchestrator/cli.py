@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import sys
-from typing import Any, Optional
+from typing import Any, Coroutine, Optional, TypeVar
 
 import typer
 from typing_extensions import Annotated
@@ -20,23 +20,44 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
+
+
+def run_async(coro: Coroutine[Any, Any, T]) -> T:
+    """Run async function, handling both existing and new event loops."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No event loop running; create one
+        return asyncio.run(coro)
+    else:
+        # Event loop already running (e.g., in tests); create task
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
+
 
 @app.command()
-async def start(
-    service: Annotated[str, typer.Argument(help="Service to start (e.g., 'vllm')")] = "vllm",
+def start(
+    service: Annotated[str, typer.Argument(help="Service to start (e.g., 'vllm'")] = "vllm",
     model: Annotated[Optional[str], typer.Option(help="Model to load")] = None,
     max_retries: Annotated[int, typer.Option(help="Max retry attempts")] = 5,
 ) -> None:
     """Start an LLM service with intelligent retry."""
-    orchestrator = Orchestrator(service=service, model=model)
-    orchestrator.MAX_RETRIES = max_retries
+    async def _start() -> None:
+        orchestrator = Orchestrator(service=service, model=model)
+        orchestrator.MAX_RETRIES = max_retries
 
-    try:
-        success = await orchestrator.start()
-        if not success:
-            sys.exit(1)
-    finally:
-        await orchestrator.close()
+        try:
+            success = await orchestrator.start()
+            if not success:
+                sys.exit(1)
+        finally:
+            await orchestrator.close()
+
+    run_async(_start())
 
 
 @app.command()
@@ -91,18 +112,21 @@ def config(
 
 
 @app.command()
-async def discover(
+def discover(
     model: Annotated[str, typer.Argument(help="Model ID to search for")],
 ) -> None:
     """Discover model variants on HuggingFace."""
-    typer.echo(f"Discovering variants for {model}...")
-    variants = await ModelDiscovery.find_variants(model)
+    async def _discover() -> None:
+        typer.echo(f"Discovering variants for {model}...")
+        variants = await ModelDiscovery.find_variants(model)
 
-    if variants:
-        for name, info in variants.items():
-            typer.echo(f"  {name}: {info['size_gb']:.2f}GB ({info['format']})")
-    else:
-        typer.echo("No variants found")
+        if variants:
+            for name, info in variants.items():
+                typer.echo(f"  {name}: {info['size_gb']:.2f}GB ({info['format']})")
+        else:
+            typer.echo("No variants found")
+
+    run_async(_discover())
 
 
 def main() -> None:
@@ -112,3 +136,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+

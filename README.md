@@ -46,11 +46,30 @@ After:
 
 ### Installation
 
+#### Option 1: Quick Start (No pip knowledge required)
+
 ```bash
-# Clone and install
-git clone https://github.com/your-org/llm-orchestrator.git
+# Clone the repo
+git clone https://github.com/eahmed01/llm-orchestrator.git
+cd llm-orchestrator
+
+# Run setup script (creates virtual environment + installs dependencies)
+bash setup.sh
+
+# Activate and use
+source venv/bin/activate
+./llm-orchestrate start vllm --model Qwen/Qwen3.6-27B-FP8
+```
+
+#### Option 2: Using pip (Standard Python approach)
+
+```bash
+git clone https://github.com/eahmed01/llm-orchestrator.git
 cd llm-orchestrator
 pip install -e ".[dev]"  # Includes dev dependencies for testing
+
+# Then use directly
+llm-orchestrate start vllm --model Qwen/Qwen3.6-27B-FP8
 ```
 
 **Requirements:**
@@ -63,11 +82,15 @@ pip install -e ".[dev]"  # Includes dev dependencies for testing
 #### Start a model with automatic retry
 
 ```bash
-# Try Qwen 27B; if it fails, let advisor pick the best fallback
+# If you used setup.sh:
+source venv/bin/activate
+./llm-orchestrate start vllm --model Qwen/Qwen3.6-27B-FP8
+
+# If you used pip install:
 llm-orchestrate start vllm --model Qwen/Qwen3.6-27B-FP8
 
 # Or use saved config (no model arg needed)
-llm-orchestrate start vllm
+./llm-orchestrate start vllm
 ```
 
 #### Check what's currently configured

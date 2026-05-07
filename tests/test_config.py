@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -34,8 +35,13 @@ class TestOrchestratorConfig:
 
     def test_load_empty_config(self):
         """Test loading config when file doesn't exist."""
-        config = OrchestratorConfig.load_from_disk()
-        assert config.vllm is None
+        with patch("llm_orchestrator.config.OrchestratorConfig.config_file") as mock_file:
+            mock_path = MagicMock()
+            mock_path.exists.return_value = False
+            mock_file.return_value = mock_path
+
+            config = OrchestratorConfig.load_from_disk()
+            assert config.vllm is None
 
     def test_config_dir_creation(self):
         """Test that config directory is created."""
