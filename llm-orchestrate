@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""LLM Orchestrator CLI wrapper.
+
+Run without installation:
+    ./llm-orchestrate start vllm --model Qwen/Qwen3.6-27B-FP8
+
+Or with pip install:
+    pip install -e .
+    llm-orchestrate start vllm --model Qwen/Qwen3.6-27B-FP8
+"""
+
+import sys
+from pathlib import Path
+
+# Add project root to Python path so we can import llm_orchestrator
+project_root = Path(__file__).parent.absolute()
+sys.path.insert(0, str(project_root))
+
+from llm_orchestrator.cli import app
+
+if __name__ == "__main__":
+    app()
