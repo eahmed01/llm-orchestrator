@@ -114,51 +114,120 @@ def config(
 @app.command()
 def models() -> None:
     """Show popular models to try with llm-orchestrate."""
-    suggestions = [
-        {
-            "name": "Qwen/Qwen2.5-Coder-7B-Instruct",
-            "desc": "7B code model - good balance of speed and quality",
-            "vram": "16GB",
-        },
-        {
-            "name": "Qwen/Qwen2.5-7B-Instruct",
-            "desc": "7B general purpose - fast, good for quick testing",
-            "vram": "14GB",
-        },
-        {
-            "name": "meta-llama/Llama-2-7b-chat-hf",
-            "desc": "7B chat model - widely compatible",
-            "vram": "14GB",
-        },
-        {
-            "name": "mistralai/Mistral-7B-Instruct-v0.1",
-            "desc": "7B efficient model - lower memory footprint",
-            "vram": "14GB",
-        },
-        {
-            "name": "meta-llama/Llama-2-13b-chat-hf",
-            "desc": "13B chat model - higher quality",
-            "vram": "26GB",
-        },
-        {
-            "name": "Qwen/Qwen1.5-14B-Chat",
-            "desc": "14B model - good quality and speed balance",
-            "vram": "28GB",
-        },
-    ]
 
-    typer.echo("Popular models to try with llm-orchestrate:\n")
+    tiers = {
+        "🟢 SAFE & RELIABLE": {
+            "emoji": "🟢",
+            "desc": "Conservative models - high success rate, fast startup",
+            "models": [
+                {
+                    "name": "Qwen/Qwen2.5-7B-Instruct",
+                    "desc": "General purpose - fast and reliable",
+                    "vram": "14GB",
+                    "risk": "✓ Low risk",
+                },
+                {
+                    "name": "mistralai/Mistral-7B-Instruct-v0.1",
+                    "desc": "Efficient 7B - proven stable",
+                    "vram": "14GB",
+                    "risk": "✓ Low risk",
+                },
+                {
+                    "name": "meta-llama/Llama-2-7b-chat-hf",
+                    "desc": "Widely compatible, battle-tested",
+                    "vram": "14GB",
+                    "risk": "✓ Low risk",
+                },
+            ],
+        },
+        "🟡 AMBITIOUS": {
+            "emoji": "🟡",
+            "desc": "Larger models - better quality, higher resource needs",
+            "models": [
+                {
+                    "name": "Qwen/Qwen1.5-14B-Chat",
+                    "desc": "14B - significantly better reasoning",
+                    "vram": "28GB",
+                    "risk": "⚠ Medium risk - may OOM on smaller GPUs",
+                },
+                {
+                    "name": "meta-llama/Llama-2-13b-chat-hf",
+                    "desc": "13B - good quality with 26GB requirement",
+                    "vram": "26GB",
+                    "risk": "⚠ Medium risk - tight memory constraints",
+                },
+                {
+                    "name": "Qwen/Qwen1.5-32B-Chat",
+                    "desc": "32B - substantial capability jump",
+                    "vram": "64GB",
+                    "risk": "⚠ Medium risk - requires high-end GPU",
+                },
+                {
+                    "name": "mistralai/Mistral-34B-Instruct-v0.1",
+                    "desc": "34B - excellent reasoning, challenging to fit",
+                    "vram": "68GB",
+                    "risk": "⚠ Medium risk - needs substantial VRAM",
+                },
+            ],
+        },
+        "🔴 EXPERIMENTAL & RISKY": {
+            "emoji": "🔴",
+            "desc": "Large/cutting-edge models - may fail, requires optimization",
+            "models": [
+                {
+                    "name": "meta-llama/Llama-2-70b-chat-hf",
+                    "desc": "70B - state-of-the-art, very memory hungry",
+                    "vram": "80GB+",
+                    "risk": "❌ High risk - may not fit, may OOM mid-inference",
+                },
+                {
+                    "name": "Qwen/Qwen1.5-72B-Chat",
+                    "desc": "72B - cutting edge, requires extreme resources",
+                    "vram": "90GB+",
+                    "risk": "❌ High risk - orchestrator will try Q4 fallback",
+                },
+                {
+                    "name": "meta-llama/Llama-2-70b-chat-hf",
+                    "desc": "70B-Q4 (quantized) - reduced memory, lower quality",
+                    "vram": "35GB",
+                    "risk": "⚠ Medium-high risk - quality trade-off",
+                },
+                {
+                    "name": "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO",
+                    "desc": "Mixtral 8x7B - MoE model, unpredictable memory",
+                    "vram": "60GB+",
+                    "risk": "❌ High risk - sparse MoE needs careful tuning",
+                },
+            ],
+        },
+    }
+
+    typer.echo("LLM Models by Ambition Level\n")
     typer.echo("Usage: ./llm-orchestrate start vllm --model <model-id>\n")
 
-    for i, model in enumerate(suggestions, 1):
-        typer.echo(f"{i}. {model['name']}")
-        typer.echo(f"   {model['desc']}")
-        typer.echo(f"   Requires: ~{model['vram']} VRAM\n")
+    for tier_name, tier_info in tiers.items():
+        typer.echo(f"\n{tier_name}")
+        typer.echo(f"{tier_info['desc']}")
+        typer.echo("-" * 80)
 
-    typer.echo("Examples:")
+        for i, model in enumerate(tier_info["models"], 1):
+            typer.echo(f"\n  {i}. {model['name']}")
+            typer.echo(f"     {model['desc']}")
+            typer.echo(f"     VRAM: {model['vram']}  |  {model['risk']}")
+
+    typer.echo("\n" + "=" * 80)
+    typer.echo("STRATEGY:")
+    typer.echo("  • Start with 🟢 SAFE models to verify setup")
+    typer.echo("  • Try 🟡 AMBITIOUS when comfortable (orchestrator will retry with Q4)")
+    typer.echo("  • Attempt 🔴 EXPERIMENTAL at your own risk")
+    typer.echo("  • Tip: Use quantization (Q4) for 40-50% memory reduction")
+    typer.echo("\nEXAMPLES:")
     typer.echo("  ./llm-orchestrate start vllm --model Qwen/Qwen2.5-7B-Instruct")
-    typer.echo("  ./llm-orchestrate start vllm --model meta-llama/Llama-2-7b-chat-hf")
-    typer.echo("\nTip: Use './llm-orchestrate discover <model>' to see available variants.")
+    typer.echo("  ./llm-orchestrate start vllm --model meta-llama/Llama-2-70b-chat-hf")
+    typer.echo("\nDISCOVER VARIANTS:")
+    typer.echo("  ./llm-orchestrate discover Qwen/Qwen1.5-32B-Chat")
+    typer.echo("  (Shows quantized versions: Q4, Q5, etc.)")
+
 
 
 @app.command()
