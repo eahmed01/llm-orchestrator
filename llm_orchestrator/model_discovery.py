@@ -406,7 +406,7 @@ class ModelDiscovery:
                 continue
 
             # Optionally classify with LLM (serial, one at a time)
-            model_type = "..."
+            model_type = "unknown"
             if enable_llm_classification:
                 try:
                     from huggingface_hub import hf_hub_download
@@ -422,11 +422,17 @@ class ModelDiscovery:
                     classification = await ModelDiscovery.classify_model_with_llm(
                         model_id, readme_content, classifier=classifier
                     )
-                    model_type = classification.get("model_type", "NOT_PROVIDED")
+                    model_type = classification.get("model_type", "unknown")
                     logger.info(f"    → {model_type}")
                 except Exception as e:
                     logger.info(f"  Failed to classify {model_id}: {e}")
-                    model_type = "failure"
+                    model_type = "unknown"
+            else:
+                # Always do at least name-based heuristic classification
+                if any(x in model_id for x in ["Instruct", "Chat", "chat", "instruct"]):
+                    model_type = "instruct"
+                else:
+                    model_type = "base"
 
             # Build better description
             desc = ModelDiscovery._generate_description(model_id, size_gb)

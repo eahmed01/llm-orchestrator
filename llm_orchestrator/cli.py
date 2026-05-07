@@ -391,8 +391,11 @@ def models(
                     if model.get("context")
                     else ""
                 )
+                model_type_str = ""
+                if model.get("model_type") and model.get("model_type") != "unknown":
+                    model_type_str = f" | Type: {model['model_type'].capitalize()}"
                 typer.echo(
-                    f"     VRAM: {model['vram']}{context_str}  |  {model['risk']}"
+                    f"     VRAM: {model['vram']}{context_str}{model_type_str}  |  {model['risk']}"
                 )
 
         typer.echo("\n" + "=" * 80)
