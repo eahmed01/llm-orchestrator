@@ -112,6 +112,56 @@ def config(
 
 
 @app.command()
+def models() -> None:
+    """Show popular models to try with llm-orchestrate."""
+    suggestions = [
+        {
+            "name": "Qwen/Qwen2.5-Coder-7B-Instruct",
+            "desc": "7B code model - good balance of speed and quality",
+            "vram": "16GB",
+        },
+        {
+            "name": "Qwen/Qwen2.5-7B-Instruct",
+            "desc": "7B general purpose - fast, good for quick testing",
+            "vram": "14GB",
+        },
+        {
+            "name": "meta-llama/Llama-2-7b-chat-hf",
+            "desc": "7B chat model - widely compatible",
+            "vram": "14GB",
+        },
+        {
+            "name": "mistralai/Mistral-7B-Instruct-v0.1",
+            "desc": "7B efficient model - lower memory footprint",
+            "vram": "14GB",
+        },
+        {
+            "name": "meta-llama/Llama-2-13b-chat-hf",
+            "desc": "13B chat model - higher quality",
+            "vram": "26GB",
+        },
+        {
+            "name": "Qwen/Qwen1.5-14B-Chat",
+            "desc": "14B model - good quality and speed balance",
+            "vram": "28GB",
+        },
+    ]
+
+    typer.echo("Popular models to try with llm-orchestrate:\n")
+    typer.echo("Usage: ./llm-orchestrate start vllm --model <model-id>\n")
+
+    for i, model in enumerate(suggestions, 1):
+        typer.echo(f"{i}. {model['name']}")
+        typer.echo(f"   {model['desc']}")
+        typer.echo(f"   Requires: ~{model['vram']} VRAM\n")
+
+    typer.echo("Examples:")
+    typer.echo("  ./llm-orchestrate start vllm --model Qwen/Qwen2.5-7B-Instruct")
+    typer.echo("  ./llm-orchestrate start vllm --model meta-llama/Llama-2-7b-chat-hf")
+    typer.echo("\nTip: Use './llm-orchestrate discover <model>' to see available variants.")
+
+
+@app.command()
 def discover(
     model: Annotated[str, typer.Argument(help="Model ID to search for")],
 ) -> None:
