@@ -9,11 +9,40 @@ import yaml
 from pydantic import BaseModel, Field
 
 
+class UserPreferences(BaseModel):
+    """User preferences for GPU, port, and interface selection."""
+
+    preferred_gpu: Optional[int] = Field(
+        None,
+        description="Preferred GPU index",
+    )
+    preferred_port: int = Field(
+        default=7999,
+        description="Preferred port for vLLM",
+    )
+    preferred_interface: str = Field(
+        default="127.0.0.1",
+        description="Preferred network interface",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "preferred_gpu": 1,
+                "preferred_port": 7999,
+                "preferred_interface": "0.0.0.0",
+            }
+        }
+    }
+
+
 class ServiceConfig(BaseModel):
     """Configuration for a managed LLM service."""
 
     model: str = Field(..., description="HuggingFace model ID")
-    variant: Optional[str] = Field(None, description="Quantization variant (e.g., 'q4', 'fp8')")
+    variant: Optional[str] = Field(
+        None, description="Quantization variant (e.g., 'q4', 'fp8')"
+    )
     args: dict[str, Any] = Field(
         default_factory=dict,
         description="vLLM startup arguments",
@@ -119,11 +148,45 @@ class OrchestratorConfig(BaseModel):
     ) -> None:
         """Record a successful startup."""
         from datetime import timezone
+
         config = ServiceConfig(
             model=model,
             variant=variant,
             args=args or {},
-            last_successful=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            last_successful=datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
         )
         self.set_service_config(service, config)
         self.save_to_disk()
+
+    @classmethod
+    def preferences_file(cls) -> Path:
+        """Get path to user-preferences.json."""
+        return cls.config_dir() / "user-preferences.json"
+
+    @classmethod
+    def load_preferences(cls) -> UserPreferences:
+        """Load user preferences from disk."""
+        pref_file = cls.preferences_file()
+
+        if not pref_file.exists():
+            return UserPreferences()
+
+        try:
+            with open(pref_file) as f:
+                data = json.load(f)
+            return UserPreferences(**data)
+        except Exception:
+            return UserPreferences()
+
+    @classmethod
+    def save_preferences(cls, preferences: UserPreferences) -> None:
+        """Save user preferences to disk."""
+        pref_file = cls.preferences_file()
+
+        try:
+            with open(pref_file, "w") as f:
+                json.dump(preferences.model_dump(), f, indent=2)
+        except Exception as e:
+            raise RuntimeError(f"Failed to save preferences: {e}")

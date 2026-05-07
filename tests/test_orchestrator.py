@@ -1,6 +1,5 @@
 """Tests for llm_orchestrator.orchestrator module."""
 
-import pytest
 
 from llm_orchestrator.orchestrator import Orchestrator
 

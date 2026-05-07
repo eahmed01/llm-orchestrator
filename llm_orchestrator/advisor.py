@@ -73,7 +73,7 @@ class Advisor:
             Dict with keys: recommendation, reasoning, confidence, alternatives.
         """
         options_str = "\n".join(
-            f"  {i+1}) {opt[0]}" + (f" ({opt[1]})" if opt[1] else "")
+            f"  {i + 1}) {opt[0]}" + (f" ({opt[1]})" if opt[1] else "")
             for i, opt in enumerate(options)
         )
 
@@ -218,7 +218,10 @@ Respond in JSON:
             "viable": hardware_vram_gb > 50,
             "confidence": 0.4,
             "reasoning": "Advisor unavailable; using fallback heuristic",
-            "suggestions": ["Ensure at least 50GB VRAM", "Try quantized variant if OOM"],
+            "suggestions": [
+                "Ensure at least 50GB VRAM",
+                "Try quantized variant if OOM",
+            ],
         }
 
     def _validate_decision(
@@ -232,7 +235,9 @@ Respond in JSON:
             if not (1 <= rec <= len(options)):
                 rec = 1
             decision["recommendation"] = str(rec)
-            decision["confidence"] = max(0, min(1, float(decision.get("confidence", 0.5))))
+            decision["confidence"] = max(
+                0, min(1, float(decision.get("confidence", 0.5)))
+            )
             decision.setdefault("reasoning", "No explanation provided")
             decision.setdefault("alternatives", [])
             decision.setdefault("next_action", "retry")
@@ -240,7 +245,9 @@ Respond in JSON:
         except Exception:
             return self._fallback_decision(options)
 
-    def _fallback_decision(self, options: list[tuple[str, Optional[str]]]) -> dict[str, Any]:
+    def _fallback_decision(
+        self, options: list[tuple[str, Optional[str]]]
+    ) -> dict[str, Any]:
         """Fallback decision when advisor is unavailable."""
         if not options:
             return {

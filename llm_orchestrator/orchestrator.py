@@ -34,6 +34,9 @@ class Orchestrator:
         self.vllm_log_file = vllm_log_file or "/work/fast3/xeio/logs/vllm.log"
         self.config = OrchestratorConfig.load_from_disk()
         self.retry_count = 0
+        # Interface and port for vLLM binding (can be overridden)
+        self.interface = "127.0.0.1"
+        self.port = 7999
 
     async def start(self) -> bool:
         """Start the service with advisor-guided retry logic."""
@@ -47,7 +50,9 @@ class Orchestrator:
                 self.args = saved_config.args
                 logger.info(f"Using saved config: {self.model}")
             else:
-                return self._exit_failure("No model specified and no saved config found")
+                return self._exit_failure(
+                    "No model specified and no saved config found"
+                )
 
         # Validate model exists
         logger.info(f"Validating model {self.model}...")
@@ -56,7 +61,9 @@ class Orchestrator:
             # Continue anyway (might be local or in cache)
 
         # Check viability
-        viability = await self.advisor.estimate_viability(self.model, hardware_vram_gb=95)
+        viability = await self.advisor.estimate_viability(
+            self.model, hardware_vram_gb=95
+        )
         logger.info(f"Viability check: {viability}")
 
         # Retry loop
@@ -73,7 +80,9 @@ class Orchestrator:
                 return self._exit_failure("Unknown failure")
 
             self.retry_count += 1
-            logger.error(f"Startup failed: {failure_reason} (attempt {self.retry_count}/{self.MAX_RETRIES})")
+            logger.error(
+                f"Startup failed: {failure_reason} (attempt {self.retry_count}/{self.MAX_RETRIES})"
+            )
 
             if self.retry_count >= self.MAX_RETRIES:
                 return self._exit_failure(f"Max retries reached ({self.MAX_RETRIES})")
@@ -107,7 +116,9 @@ class Orchestrator:
 
         return False
 
-    async def _attempt_startup(self, model: str, args: dict[str, Any]) -> tuple[bool, Optional[str]]:
+    async def _attempt_startup(
+        self, model: str, args: dict[str, Any]
+    ) -> tuple[bool, Optional[str]]:
         """Attempt to start vLLM with given model and args.
 
         Returns:
@@ -162,9 +173,9 @@ class Orchestrator:
             "serve",
             model,
             "--host",
-            "0.0.0.0",
+            self.interface,
             "--port",
-            "7999",
+            str(self.port),
         ]
 
         # Add default args if not specified

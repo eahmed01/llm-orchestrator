@@ -1,14 +1,12 @@
 """Tests for llm_orchestrator.cli module."""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
 
 from llm_orchestrator.cli import app
-from llm_orchestrator.config import OrchestratorConfig, ServiceConfig
+from llm_orchestrator.config import ServiceConfig
 
 runner = CliRunner()
 
@@ -133,12 +131,22 @@ class TestStartCommand:
     @pytest.mark.asyncio
     async def test_start_with_model(self):
         """Test start command with model specified."""
-        with patch(
-            "llm_orchestrator.cli.Orchestrator"
-        ) as mock_orchestrator_class:
+        with patch("llm_orchestrator.cli.Orchestrator") as mock_orchestrator_class, \
+             patch("llm_orchestrator.cli.OrchestratorConfig") as mock_config_class, \
+             patch("llm_orchestrator.cli.EnvironmentDetector") as mock_env:
             mock_orchestrator = AsyncMock()
             mock_orchestrator.start.return_value = True
             mock_orchestrator_class.return_value = mock_orchestrator
+
+            mock_config = MagicMock()
+            mock_config.load_preferences.return_value = MagicMock(
+                preferred_gpu=0, preferred_port=7999, preferred_interface="127.0.0.1"
+            )
+            mock_config_class.load_preferences.return_value = mock_config.load_preferences.return_value
+
+            mock_env.detect_gpus.return_value = [{"index": 0, "name": "GPU0", "total_memory_gb": 24, "used_memory_mb": 0}]
+            mock_env.detect_interfaces.return_value = [{"ip": "127.0.0.1", "type": "loopback"}]
+            mock_env.is_port_in_use.return_value = None
 
             result = runner.invoke(
                 app,
@@ -151,12 +159,22 @@ class TestStartCommand:
     @pytest.mark.asyncio
     async def test_start_failure(self):
         """Test start command when startup fails."""
-        with patch(
-            "llm_orchestrator.cli.Orchestrator"
-        ) as mock_orchestrator_class:
+        with patch("llm_orchestrator.cli.Orchestrator") as mock_orchestrator_class, \
+             patch("llm_orchestrator.cli.OrchestratorConfig") as mock_config_class, \
+             patch("llm_orchestrator.cli.EnvironmentDetector") as mock_env:
             mock_orchestrator = AsyncMock()
             mock_orchestrator.start.return_value = False
             mock_orchestrator_class.return_value = mock_orchestrator
+
+            mock_config = MagicMock()
+            mock_config.load_preferences.return_value = MagicMock(
+                preferred_gpu=0, preferred_port=7999, preferred_interface="127.0.0.1"
+            )
+            mock_config_class.load_preferences.return_value = mock_config.load_preferences.return_value
+
+            mock_env.detect_gpus.return_value = [{"index": 0, "name": "GPU0", "total_memory_gb": 24, "used_memory_mb": 0}]
+            mock_env.detect_interfaces.return_value = [{"ip": "127.0.0.1", "type": "loopback"}]
+            mock_env.is_port_in_use.return_value = None
 
             result = runner.invoke(app, ["start", "vllm"])
 

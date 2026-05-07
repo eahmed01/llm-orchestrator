@@ -38,7 +38,9 @@ class TestAdvisorAvailability:
     @pytest.mark.asyncio
     async def test_check_available_model_load_failure(self, advisor):
         """Test advisor unavailable when model fails to load."""
-        with patch("llm_orchestrator.advisor.pipeline", side_effect=Exception("Load failed")):
+        with patch(
+            "llm_orchestrator.advisor.pipeline", side_effect=Exception("Load failed")
+        ):
             available = await advisor.check_available()
 
         assert available is False
@@ -64,13 +66,15 @@ class TestAdvisorDecisions:
             ("Qwen/Qwen3.6-7B-FP8", None),
         ]
 
-        json_response = json.dumps({
-            "recommendation": "2",
-            "reasoning": "Try quantized variant",
-            "confidence": 0.8,
-            "alternatives": ["3"],
-            "next_action": "retry",
-        })
+        json_response = json.dumps(
+            {
+                "recommendation": "2",
+                "reasoning": "Try quantized variant",
+                "confidence": 0.8,
+                "alternatives": ["3"],
+                "next_action": "retry",
+            }
+        )
 
         mock_pipe.return_value = [{"generated_text": f"prompt text\n{json_response}"}]
         advisor.pipeline = mock_pipe
@@ -94,7 +98,10 @@ class TestAdvisorDecisions:
             ("Qwen/Qwen3.6-7B-FP8", None),
         ]
 
-        with patch("llm_orchestrator.advisor.pipeline", side_effect=Exception("Connection error")):
+        with patch(
+            "llm_orchestrator.advisor.pipeline",
+            side_effect=Exception("Connection error"),
+        ):
             decision = await advisor.decide_next_step(
                 model="Qwen/Qwen3.6-27B-FP8",
                 failure_reason="OOM",
@@ -134,11 +141,13 @@ class TestAdvisorDecisions:
             ("Model2", None),
         ]
 
-        json_response = json.dumps({
-            "recommendation": "5",  # Out of bounds
-            "reasoning": "Test",
-            "confidence": 1.5,  # Out of range
-        })
+        json_response = json.dumps(
+            {
+                "recommendation": "5",  # Out of bounds
+                "reasoning": "Test",
+                "confidence": 1.5,  # Out of range
+            }
+        )
 
         mock_pipe.return_value = [{"generated_text": f"prompt\n{json_response}"}]
         advisor.pipeline = mock_pipe
@@ -168,7 +177,9 @@ class TestAdvisorViability:
             "suggestions": [],
         }
 
-        mock_pipe.return_value = [{"generated_text": f"prompt\n{json.dumps(viability_response)}"}]
+        mock_pipe.return_value = [
+            {"generated_text": f"prompt\n{json.dumps(viability_response)}"}
+        ]
         advisor.pipeline = mock_pipe
 
         result = await advisor.estimate_viability(
@@ -191,7 +202,9 @@ class TestAdvisorViability:
             "suggestions": ["Try 7B model", "Use quantized variant"],
         }
 
-        mock_pipe.return_value = [{"generated_text": f"prompt\n{json.dumps(viability_response)}"}]
+        mock_pipe.return_value = [
+            {"generated_text": f"prompt\n{json.dumps(viability_response)}"}
+        ]
         advisor.pipeline = mock_pipe
 
         result = await advisor.estimate_viability(

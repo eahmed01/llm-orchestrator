@@ -3,44 +3,102 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> Automate trial-and-error LLM startup with intelligent retry decisions and adaptive model degradation.
+## 🚀 Run massive LLMs locally. Instantly. No trial-and-error.
 
-## Overview
+**Stop wasting hours manually testing models.** LLM Orchestrator automatically finds the right model variant for your GPU, instantly adapting when your first choice runs out of memory.
 
-**LLM Orchestrator** eliminates manual troubleshooting when deploying large language models locally. When your first choice model fails due to memory constraints, incompatibility, or crashes, the orchestrator automatically:
+### The Problem
 
-1. **Detects failures** in real-time by monitoring startup logs
-2. **Consults an AI advisor** (Qwen2.5-Coder-1.5B running in-process) for intelligent retry decisions
-3. **Discovers model variants** (quantized versions, smaller models) on HuggingFace
-4. **Retries with degraded configurations** until success or max attempts
+You want to run a 70B model locally. You try it. **Out of memory.** 
 
-### Problem It Solves
+Now what? Manually tweak batch sizes? Quantize it? Try a smaller model? Try again. And again. And save the config somewhere. Maybe next time you remember what worked.
 
+**LLM Orchestrator automates all of this.** Give it one model, and it will:
+- ✓ Auto-detect if it fits your GPU
+- ✓ Detect failures in real-time (OOM, crashes, timeouts)
+- ✓ Automatically retry with optimized versions (Q4, smaller sizes, etc.)
+- ✓ Save the working config for next time
+- ✓ Do it all without external services or complex setup
+
+### The Solution (In 30 Seconds)
+
+```bash
+# Install (one-time)
+git clone https://github.com/eahmed01/llm-orchestrator.git
+cd llm-orchestrator && bash setup.sh
+
+# Run (and forget)
+source venv/bin/activate
+./llm-orchestrate start vllm --model Qwen/Qwen3.6-70B-Instruct
+
+# If OOM → Automatically retries with Q4 variant ✓ Success → Config saved
 ```
-Before:
-  ❌ Try Qwen3.6-27B-FP8 → Out of memory
-  → Manual: Adjust batch size, check variants, try Q4
-  → Manual: Try 7B model instead
-  → Manual: Save working config for next time
 
-After:
-  ✓ Run: llm-orchestrate start vllm --model Qwen/Qwen3.6-27B-FP8
-  → Automatic: Detects OOM after 2min
-  → Automatic: Advisor recommends Q4 variant
-  → Automatic: Retries, succeeds, saves config
-  → Next time: Uses saved working config
+### Real Example: What Changed
+
+**Before (Manual Hell):**
+```
+❌ Qwen3.6-70B-FP8 → Out of memory
+→ Manually edit args, find quantized versions, download 
+→ ❌ Try Qwen3.6-70B-Q4 → Crashes
+→ Manually research alternatives
+→ Try Qwen3.6-7B → Success
+→ Manually save config
+→ NEXT TIME: Remember where you saved it
 ```
 
-## Features
+**After (Automated):**
+```
+✓ ./llm-orchestrate start vllm --model Qwen/Qwen3.6-70B-Instruct
+→ Detects OOM after 2min
+→ Advisor recommends Q4 variant
+→ Retries automatically → SUCCESS
+→ Config auto-saved
+→ NEXT TIME: Just run the same command
+```
 
-- **One-click setup** — No external services required (Ollama, API endpoints)
-- **In-process advisor** — Qwen2.5-Coder-1.5B runs locally via transformers library, auto-downloads on first use
-- **Intelligent retry** — Advisor makes decisions based on failure reason, hardware specs, and available models
-- **HuggingFace integration** — Automatically discovers quantized variants (Q4, Q5, FP8, AWQ)
-- **Persistent config** — Saves working configurations to `~/.config/llm-orchestrator/`
-- **Real-time monitoring** — Tails vLLM logs and detects success/failure patterns
-- **Adaptive degradation** — Fallback chain: same model (adjusted args) → quantized → smaller model → tiny model
-- **Type-safe** — Full mypy compliance, Pydantic models, async-first design
+## Why You Need This
+
+- **You have a 24GB-96GB GPU** and want to use it for the best possible models
+- **You're tired of manual model tweaking** and want something that Just Works™
+- **You want to push your hardware limits** without spending hours on trial-and-error
+- **You need it running locally** (no cloud, no API dependencies)
+- **You want it fast** (setup should take <5 minutes)
+
+## Key Features
+
+- **Zero external services** — Runs on your machine with no Ollama, API endpoints, or web UIs
+- **Intelligent advisor** — Built-in AI model decides what to try next based on failure reason
+- **Automatic model discovery** — Finds quantized variants (Q4, Q5, FP8, AWQ) on HuggingFace
+- **Persistent memory** — Saves working configs, reuses them next time
+- **Real-time monitoring** — Detects failures as they happen, no polling
+- **Hardware-aware** — Knows your GPU VRAM, makes smart retry decisions
+- **Multiple models supported** — Browse trending models by ambition level and hardware fit
+
+## Quick Start
+
+```bash
+# Clone & install (one time)
+git clone https://github.com/eahmed01/llm-orchestrator.git
+cd llm-orchestrator
+bash setup.sh
+source venv/bin/activate
+
+# Run a model (with auto-retry on failure)
+./llm-orchestrate start vllm --model Qwen/Qwen3.6-70B-Instruct
+
+# Or explore what models you can run
+./llm-orchestrate models
+
+# Or check what's currently configured
+./llm-orchestrate status vllm
+```
+
+**That's it.** No complex config files, no environment variables to set, no external services to run.
+
+---
+
+## 📚 Full Documentation Below
 
 ## Quick Start
 

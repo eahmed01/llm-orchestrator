@@ -1,10 +1,6 @@
 """Tests for llm_orchestrator.config module."""
 
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from llm_orchestrator.config import OrchestratorConfig, ServiceConfig
 
@@ -35,7 +31,9 @@ class TestOrchestratorConfig:
 
     def test_load_empty_config(self):
         """Test loading config when file doesn't exist."""
-        with patch("llm_orchestrator.config.OrchestratorConfig.config_file") as mock_file:
+        with patch(
+            "llm_orchestrator.config.OrchestratorConfig.config_file"
+        ) as mock_file:
             mock_path = MagicMock()
             mock_path.exists.return_value = False
             mock_file.return_value = mock_path

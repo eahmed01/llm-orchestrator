@@ -1,0 +1,78 @@
+{
+  "models": {
+    "safe": [
+      {
+        "name": "Qwen/Qwen2.5-7B-Instruct",
+        "desc": "General purpose - latest, fast and reliable",
+        "vram": "14GB",
+        "risk": "✓ Low risk"
+      },
+      {
+        "name": "mistralai/Mistral-7B-Instruct-v0.3",
+        "desc": "Efficient 7B - newest version, proven stable",
+        "vram": "14GB",
+        "risk": "✓ Low risk"
+      },
+      {
+        "name": "meta-llama/Llama-3.1-8B-Instruct",
+        "desc": "Latest Llama 3.1 - strong reasoning for 8B",
+        "vram": "16GB",
+        "risk": "✓ Low risk"
+      }
+    ],
+    "ambitious": [
+      {
+        "name": "Qwen/Qwen2.5-14B-Instruct",
+        "desc": "14B - latest Qwen, significantly better reasoning",
+        "vram": "28GB",
+        "risk": "⚠ Medium risk - may OOM on smaller GPUs"
+      },
+      {
+        "name": "meta-llama/Llama-3.1-70B-Instruct",
+        "desc": "70B - powerful reasoning, needs high-end GPU",
+        "vram": "140GB",
+        "risk": "⚠ Medium risk - requires excellent hardware"
+      },
+      {
+        "name": "Qwen/Qwen2.5-32B-Instruct",
+        "desc": "32B - substantial capability, newer than 1.5",
+        "vram": "64GB",
+        "risk": "⚠ Medium risk - requires high-end GPU"
+      },
+      {
+        "name": "mistralai/Mistral-Nemo-Instruct-2407",
+        "desc": "12B - newest Mistral, impressive reasoning",
+        "vram": "24GB",
+        "risk": "⚠ Medium risk - requires solid GPU"
+      }
+    ],
+    "experimental": [
+      {
+        "name": "meta-llama/Llama-3.1-405B-Instruct",
+        "desc": "405B - frontier model, extreme resources needed",
+        "vram": "800GB+",
+        "risk": "❌ High risk - quantization essential"
+      },
+      {
+        "name": "Qwen/Qwen2.5-72B-Instruct",
+        "desc": "72B - cutting edge Qwen, massive capability",
+        "vram": "144GB",
+        "risk": "❌ High risk - may fail without Q4 fallback"
+      },
+      {
+        "name": "NousResearch/Hermes-3-Llama-3.1-70B",
+        "desc": "70B Hermes - specialized reasoning model",
+        "vram": "140GB",
+        "risk": "⚠ Medium-high risk - large memory footprint"
+      },
+      {
+        "name": "deepseek-ai/deepseek-llm-67b-chat",
+        "desc": "67B DeepSeek - strong reasoning from new org",
+        "vram": "134GB",
+        "risk": "❌ High risk - newer, less battle-tested"
+      }
+    ]
+  },
+  "last_updated": "2024-11-07",
+  "note": "Update this file with latest models from HuggingFace trending. Run: ./llm-orchestrate models"
+}
