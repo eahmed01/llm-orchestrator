@@ -122,9 +122,14 @@ def discover(
 
         if variants:
             for name, info in variants.items():
-                typer.echo(f"  {name}: {info['size_gb']:.2f}GB ({info['format']})")
+                size_str = f"{info['size_gb']:.2f}GB" if info['size_gb'] > 0 else "size unknown"
+                shard_str = f" ({info['shards']} shards)" if info.get('shards') else ""
+                typer.echo(f"  {name}: {size_str} ({info['format']}){shard_str}")
+            typer.echo(f"\nFound {len(variants)} variant(s). Models are available on HuggingFace.")
+            if any(v['size_gb'] == 0.0 for v in variants.values()):
+                typer.echo("Note: Exact file sizes unavailable for large models. Files are confirmed to exist.")
         else:
-            typer.echo("No variants found")
+            typer.echo("No variants found. Model may not exist or have no model files.")
 
     run_async(_discover())
 

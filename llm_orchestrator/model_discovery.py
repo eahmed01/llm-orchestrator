@@ -21,6 +21,9 @@ class ModelDiscovery:
 
         Returns:
             Dict mapping variant name to metadata: {"name": {"size_gb": X, "format": "q4"}}.
+
+        Note: File sizes may be unavailable (0.00GB) due to API limitations on large models.
+        The presence of files (especially .safetensors) indicates the model is available.
         """
         try:
             info = model_info(model_id)
@@ -31,33 +34,56 @@ class ModelDiscovery:
                 logger.warning(f"No siblings found for {model_id}")
                 return variants
 
+            # Group files by base name (for sharded models)
+            file_groups: dict[str, list[Any]] = {}
             for sibling in info.siblings:
                 filename = sibling.rfilename.lower()
-                size_bytes = sibling.size or 0
 
-                # Match quantization formats
-                for fmt in ModelDiscovery.QUANTIZATION_FORMATS:
-                    if fmt in filename and (".gguf" in filename or ".safetensors" in filename):
-                        variant_name = f"{model_id}-{fmt.upper()}"
-                        variants[variant_name] = {
-                            "size_gb": size_bytes / (1024 ** 3),
-                            "format": fmt,
-                            "filename": sibling.rfilename,
-                        }
+                # Skip non-model files
+                if any(skip in filename for skip in [".gitattribute", ".md", ".txt", ".json", ".jinja"]):
+                    continue
+
+                # Extract base name (remove shard numbers like -00001-of-00015)
+                if "safetensors" in filename:
+                    base_name = filename.rsplit("-", 2)[0] if "-of-" in filename else filename
+                    if base_name not in file_groups:
+                        file_groups[base_name] = []
+                    file_groups[base_name].append(sibling)
+                elif "gguf" in filename:
+                    base_name = filename.rsplit(".", 1)[0]
+                    if base_name not in file_groups:
+                        file_groups[base_name] = []
+                    file_groups[base_name].append(sibling)
+                elif "bin" in filename and filename.endswith(".bin"):
+                    # PyTorch format (older models)
+                    base_name = filename.rsplit("-", 2)[0] if "-of-" in filename else filename
+                    if base_name not in file_groups:
+                        file_groups[base_name] = []
+                    file_groups[base_name].append(sibling)
+
+            # Process each file group
+            for base_name, siblings in file_groups.items():
+                # Calculate total size (may be 0 if API doesn't return sizes)
+                total_size = sum(s.size or 0 for s in siblings)
+                size_gb = total_size / (1024 ** 3) if total_size > 0 else 0.0
+
+                # Detect quantization format
+                filename = siblings[0].rfilename.lower()
+                fmt = "fp16"  # default
+
+                for q_fmt in ModelDiscovery.QUANTIZATION_FORMATS:
+                    if q_fmt in filename:
+                        fmt = q_fmt
                         break
 
-            # Also include the base model if not quantized
-            for sibling in info.siblings:
-                if sibling.rfilename == "model.safetensors" or (
-                    ".safetensors" in sibling.rfilename and "gguf" not in sibling.rfilename
-                ):
-                    size_bytes = sibling.size or 0
-                    variants[model_id] = {
-                        "size_gb": size_bytes / (1024 ** 3),
-                        "format": "fp16",
-                        "filename": sibling.rfilename,
-                    }
-                    break
+                # Create variant entry
+                variant_name = f"{model_id}-{fmt.upper()}" if fmt != "fp16" else model_id
+                variants[variant_name] = {
+                    "size_gb": size_gb,
+                    "format": fmt,
+                    "filename": siblings[0].rfilename,
+                    "shards": len(siblings) if len(siblings) > 1 else None,
+                }
 
             logger.info(f"Found {len(variants)} variants for {model_id}")
             return variants
