@@ -1,8 +1,11 @@
-"""Monitor: real-time log tailing and startup detection."""
+"""Monitor: real-time log tailing, startup detection, and port health checks."""
 
 import asyncio
 import logging
 import re
+import socket
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class Monitor:
-    """Monitor vLLM startup by tailing logs."""
+    """Monitor vLLM startup by tailing logs and checking port health."""
 
     SUCCESS_PATTERNS = [
         r"Application startup complete",
@@ -77,3 +80,68 @@ class Monitor:
                 logger.warning(f"Error reading log: {e}")
 
             await asyncio.sleep(check_interval)
+
+    @staticmethod
+    async def health_check(host: str, port: int, timeout: float = 3) -> bool:
+        """Check if a service's /v1/models endpoint responds.
+
+        Args:
+            host: Hostname or IP (use '127.0.0.1' for localhost).
+            port: TCP port.
+            timeout: HTTP request timeout in seconds.
+
+        Returns:
+            True if the endpoint returns HTTP 200.
+        """
+        request_host = host if host != "0.0.0.0" else "127.0.0.1"
+        url = f"http://{request_host}:{port}/v1/models"
+
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status == 200
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            OSError,
+            TimeoutError,
+        ) as exc:
+            logger.debug("Health check %s:%d failed: %s", host, port, exc)
+            return False
+
+    @staticmethod
+    async def wait_for_service(
+        host: str, port: int, timeout: float = 60, interval: float = 1
+    ) -> bool:
+        """Poll a service's health endpoint until it responds or times out.
+
+        Args:
+            host: Hostname or IP.
+            port: TCP port.
+            timeout: Maximum time to wait in seconds.
+            interval: Seconds between polls.
+
+        Returns:
+            True if the service became healthy within the timeout.
+        """
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            if await Monitor.health_check(host, port, timeout=3):
+                logger.info("Service %s:%d is healthy", host, port)
+                return True
+            await asyncio.sleep(interval)
+        logger.warning("Service %s:%d did not become healthy within %.0fs", host, port, timeout)
+        return False
+
+    @staticmethod
+    def port_in_use(port: int) -> bool:
+        """Check if a TCP port is currently bound/listening."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("0.0.0.0", port))
+            sock.close()
+            return False
+        except OSError:
+            sock.close()
+            return True

@@ -13,17 +13,42 @@ class EnvironmentDetector:
     """Detect and manage environment resources."""
 
     @staticmethod
+    def pcie_status(pcie_link_gen: int, pcie_link_gen_max: int,
+                     pcie_link_width: int, pcie_link_width_max: int) -> str:
+        """Return a human-readable PCIe link status string.
+
+        Returns status like 'PCIe 4.0 x16', 'PCIe 1.0 x16 (DEGRADED, expected 4.0 x16)', etc.
+        """
+        if pcie_link_gen < pcie_link_gen_max:
+            return (f"PCIe {pcie_link_gen}.0 x{pcie_link_width} "
+                    f"(DEGRADED, expected {pcie_link_gen_max}.0 x{pcie_link_width_max})")
+        if pcie_link_width < pcie_link_width_max:
+            return (f"PCIe {pcie_link_gen}.0 x{pcie_link_width} "
+                    f"(WIDTH DEGRADED, expected x{pcie_link_width_max})")
+        return f"PCIe {pcie_link_gen}.0 x{pcie_link_width}"
+
+    @staticmethod
+    def pcie_is_degraded(pcie_link_gen: int, pcie_link_gen_max: int,
+                          pcie_link_width: int, pcie_link_width_max: int) -> bool:
+        """Return True if the PCIe link is running below its maximum capability."""
+        return pcie_link_gen < pcie_link_gen_max or pcie_link_width < pcie_link_width_max
+
+    @staticmethod
     def detect_gpus() -> list[dict[str, Any]]:
         """Detect available NVIDIA GPUs and their status.
 
         Returns:
-            List of GPU info dicts: {"index": 0, "name": "...", "total_memory_gb": 24, ...}
+            List of GPU info dicts with keys:
+                index, name, total_memory_gb, used_memory_mb,
+                pcie_link_gen, pcie_link_gen_max, pcie_link_width, pcie_link_width_max
         """
         try:
             output = subprocess.check_output(
                 [
                     "nvidia-smi",
-                    "--query-gpu=index,name,memory.total,memory.used",
+                    "--query-gpu=index,name,memory.total,memory.used,"
+                    "pcie.link.gen.current,pcie.link.gen.max,"
+                    "pcie.link.width.current,pcie.link.width.max",
                     "--format=csv,nounits,noheader",
                 ],
                 text=True,
@@ -35,14 +60,18 @@ class EnvironmentDetector:
                     continue
                 parts = [p.strip() for p in line.split(",")]
                 if len(parts) >= 4:
-                    gpus.append(
-                        {
-                            "index": int(parts[0]),
-                            "name": parts[1],
-                            "total_memory_gb": int(parts[2]) // 1024,
-                            "used_memory_mb": int(parts[3]),
-                        }
-                    )
+                    gpu: dict[str, Any] = {
+                        "index": int(parts[0]),
+                        "name": parts[1],
+                        "total_memory_gb": int(parts[2]) // 1024,
+                        "used_memory_mb": int(parts[3]),
+                    }
+                    if len(parts) >= 8:
+                        gpu["pcie_link_gen"] = int(parts[4])
+                        gpu["pcie_link_gen_max"] = int(parts[5])
+                        gpu["pcie_link_width"] = int(parts[6])
+                        gpu["pcie_link_width_max"] = int(parts[7])
+                    gpus.append(gpu)
             return gpus
         except Exception as e:
             logger.warning(f"Failed to detect GPUs: {e}")

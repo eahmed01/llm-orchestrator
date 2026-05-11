@@ -3,6 +3,8 @@
 import asyncio
 import json
 import logging
+import urllib.error
+import urllib.request
 from typing import Any, Optional
 
 from transformers import pipeline
@@ -11,14 +13,96 @@ logger = logging.getLogger(__name__)
 
 
 class Advisor:
-    """Queries Qwen2.5-Coder-1.5B in-process for retry decisions."""
+    """Queries Qwen2.5-Coder-1.5B in-process for retry decisions, with optional remote routing."""
 
     MODEL = "Qwen/Qwen2.5-Coder-1.5B"
 
-    def __init__(self, endpoint: Optional[str] = None):
+    def __init__(
+        self,
+        endpoint: Optional[str] = None,
+        use_remote: bool = True,
+        remote_url: Optional[str] = None,
+    ):
         # endpoint parameter kept for compatibility but not used
+        self.use_remote = use_remote
+        self.remote_url = remote_url
+        self._remote_base: Optional[str] = None
+        self._remote_model: Optional[str] = None
         self.pipeline: Optional[Any] = None
         self._loading = False
+
+    def _detect_remote_endpoint(self) -> tuple[Optional[str], Optional[str]]:
+        """Detect a running LLM endpoint by polling known ports.
+
+        Tries http://127.0.0.1:8000/v1/models (litellm), then
+        http://127.0.0.1:7999/v1/models (vllm).
+
+        Returns (base_url, model_id) or (None, None).
+        """
+        # If the user explicitly set a remote_url, use that as base
+        candidates: list[str] = []
+        if self.remote_url:
+            candidates.append(self.remote_url)
+        candidates.extend([
+            "http://127.0.0.1:8000",
+            "http://127.0.0.1:7999",
+        ])
+
+        for base in candidates:
+            try:
+                url = base.rstrip("/") + "/v1/models"
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = json.loads(resp.read().decode())
+                    models = data.get("data", [])
+                    if models:
+                        model_id = models[0].get("id", "")
+                        logger.info(f"Found remote LLM endpoint at {base} with model {model_id}")
+                        return base, model_id or "auto"
+            except Exception as e:
+                logger.debug(f"Remote endpoint {base} not available: {e}")
+                continue
+
+        return None, None
+
+    def _query_remote(
+        self, prompt: str, system: str, model: str
+    ) -> Optional[str]:
+        """Send a chat-completion request to a remote endpoint.
+
+        Returns assistant content text or None on failure.
+        """
+        base = self._remote_base
+        if not base:
+            return None
+
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.3,
+            "max_tokens": 500,
+        }
+        body = json.dumps(payload).encode()
+        url = base.rstrip("/") + "/v1/chat/completions"
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode())
+                content = (
+                    data.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
+                return content if content else None
+        except Exception as e:
+            logger.warning(f"Remote query failed: {e}")
+            return None
 
     async def check_available(self) -> bool:
         """Check if advisor model can be loaded."""
@@ -103,6 +187,21 @@ Respond in JSON format:
 }}"""
 
         try:
+            # --- Try remote first if enabled ---
+            if self.use_remote:
+                if not self._remote_base:
+                    base, model_id = self._detect_remote_endpoint()
+                    self._remote_base = base
+                    self._remote_model = model_id
+                if self._remote_base:
+                    system = "You are an LLM inference optimizer. Respond only in JSON."
+                    remote_text = await asyncio.to_thread(
+                        self._query_remote, prompt, system, self._remote_model or "auto"
+                    )
+                    if remote_text:
+                        return self._parse_decision_json(remote_text, options)
+
+            # --- Fallback to local pipeline ---
             await self._ensure_loaded()
 
             pipe = self.pipeline
@@ -123,30 +222,31 @@ Respond in JSON format:
             if prompt in response_text:
                 response_text = response_text[len(prompt) :].strip()
 
-            # Try to extract JSON from response
-            try:
-                start_idx = response_text.find("{")
-                end_idx = response_text.rfind("}") + 1
-                if start_idx != -1 and end_idx > start_idx:
-                    json_str = response_text[start_idx:end_idx]
-                    result = json.loads(json_str)
-                    if isinstance(result, dict):
-                        return self._validate_decision(result, options)
-                else:
-                    logger.warning(
-                        f"No JSON block found in advisor response: {response_text}"
-                    )
-                    return self._fallback_decision(options)
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse advisor response: {response_text}")
-                return self._fallback_decision(options)
-
-            # Fallback if JSON is valid but not a dict
-            return self._fallback_decision(options)
+            return self._parse_decision_json(response_text, options)
 
         except Exception as e:
             logger.error(f"Advisor query failed: {e}")
             return self._fallback_decision(options)
+
+    def _parse_decision_json(
+        self, response_text: str, options: list[tuple[str, Optional[str]]]
+    ) -> dict[str, Any]:
+        """Extract and validate JSON from an LLM response."""
+        try:
+            start_idx = response_text.find("{")
+            end_idx = response_text.rfind("}") + 1
+            if start_idx != -1 and end_idx > start_idx:
+                json_str = response_text[start_idx:end_idx]
+                result = json.loads(json_str)
+                if isinstance(result, dict):
+                    return self._validate_decision(result, options)
+            else:
+                logger.warning(
+                    f"No JSON block found in advisor response: {response_text}"
+                )
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse advisor response: {response_text}")
+        return self._fallback_decision(options)
 
     async def estimate_viability(
         self,
@@ -179,6 +279,21 @@ Respond in JSON:
 }}"""
 
         try:
+            # --- Try remote first if enabled ---
+            if self.use_remote:
+                if not self._remote_base:
+                    base, model_id = self._detect_remote_endpoint()
+                    self._remote_base = base
+                    self._remote_model = model_id
+                if self._remote_base:
+                    system = "You are an LLM inference optimizer. Respond only in JSON."
+                    remote_text = await asyncio.to_thread(
+                        self._query_remote, prompt, system, self._remote_model or "auto"
+                    )
+                    if remote_text:
+                        return self._parse_viability_json(remote_text)
+
+            # --- Fallback to local pipeline ---
             await self._ensure_loaded()
 
             pipe = self.pipeline
@@ -199,16 +314,9 @@ Respond in JSON:
             if prompt in response_text:
                 response_text = response_text[len(prompt) :].strip()
 
-            try:
-                start_idx = response_text.find("{")
-                end_idx = response_text.rfind("}") + 1
-                if start_idx != -1 and end_idx > start_idx:
-                    json_str = response_text[start_idx:end_idx]
-                    result = json.loads(json_str)
-                    if isinstance(result, dict):
-                        return result
-            except json.JSONDecodeError:
-                pass
+            result = self._parse_viability_json(response_text)
+            if result is not None:
+                return result
 
         except Exception as e:
             logger.error(f"Viability check failed: {e}")
@@ -223,6 +331,22 @@ Respond in JSON:
                 "Try quantized variant if OOM",
             ],
         }
+
+    def _parse_viability_json(
+        self, response_text: str
+    ) -> Optional[dict[str, Any]]:
+        """Extract JSON from a viability check response."""
+        try:
+            start_idx = response_text.find("{")
+            end_idx = response_text.rfind("}") + 1
+            if start_idx != -1 and end_idx > start_idx:
+                json_str = response_text[start_idx:end_idx]
+                result = json.loads(json_str)
+                if isinstance(result, dict):
+                    return result
+        except json.JSONDecodeError:
+            pass
+        return None
 
     def _validate_decision(
         self,

@@ -1,7 +1,7 @@
 """Tests for llm_orchestrator.advisor module (in-process transformers model)."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,8 +10,8 @@ from llm_orchestrator.advisor import Advisor
 
 @pytest.fixture
 def advisor():
-    """Create advisor instance for testing."""
-    return Advisor()
+    """Create advisor instance for testing with remote disabled."""
+    return Advisor(use_remote=False)
 
 
 @pytest.fixture
@@ -162,6 +162,146 @@ class TestAdvisorDecisions:
         assert decision["confidence"] <= 1.0  # Clamped to 0-1
 
 
+class TestAdvisorRemote:
+    """Tests for advisor remote endpoint detection and querying."""
+
+    def test_detect_remote_endpoint_success(self):
+        """Test detecting a running remote endpoint."""
+        advisor = Advisor(use_remote=True)
+        mock_response = json.dumps({"data": [{"id": "test-model"}]}).encode()
+
+        def mock_urlopen(req, timeout=None):
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = mock_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            base, model_id = advisor._detect_remote_endpoint()
+
+        assert base is not None
+        assert model_id == "test-model"
+
+    def test_detect_remote_endpoint_not_available(self):
+        """Test returning None when no endpoint is available."""
+        advisor = Advisor(use_remote=True)
+        with patch("urllib.request.urlopen", side_effect=Exception("Connection refused")):
+            base, model_id = advisor._detect_remote_endpoint()
+
+        assert base is None
+        assert model_id is None
+
+    def test_detect_remote_endpoint_custom_url(self):
+        """Test using custom remote_url."""
+        advisor = Advisor(use_remote=True, remote_url="http://custom:9000")
+        mock_response = json.dumps({"data": [{"id": "custom-model"}]}).encode()
+
+        def mock_urlopen(req, timeout=None):
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = mock_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            base, model_id = advisor._detect_remote_endpoint()
+
+        assert base == "http://custom:9000"
+        assert model_id == "custom-model"
+
+    def test_query_remote_success(self):
+        """Test querying remote endpoint successfully."""
+        advisor = Advisor(use_remote=True)
+        advisor._remote_base = "http://127.0.0.1:8000"
+
+        mock_response = json.dumps({
+            "choices": [{"message": {"content": '{"recommendation": "1"}'}}]
+        }).encode()
+
+        def mock_urlopen(req, timeout=None):
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = mock_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            result = advisor._query_remote("test prompt", "system", "model")
+
+        assert '{"recommendation": "1"}' in result
+
+    def test_query_remote_no_base(self):
+        """Test query_remote returns None when no base URL set."""
+        advisor = Advisor(use_remote=True)
+        result = advisor._query_remote("test", "system", "model")
+        assert result is None
+
+    def test_query_remote_empty_response(self):
+        """Test query_remote handles empty response."""
+        advisor = Advisor(use_remote=True)
+        advisor._remote_base = "http://127.0.0.1:8000"
+
+        mock_response = json.dumps({
+            "choices": [{"message": {"content": ""}}]
+        }).encode()
+
+        def mock_urlopen(req, timeout=None):
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = mock_response
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            return mock_resp
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            result = advisor._query_remote("test", "system", "model")
+
+        assert result is None
+
+    def test_query_remote_connection_error(self):
+        """Test query_remote handles connection errors."""
+        advisor = Advisor(use_remote=True)
+        advisor._remote_base = "http://127.0.0.1:8000"
+
+        with patch("urllib.request.urlopen", side_effect=Exception("Connection refused")):
+            result = advisor._query_remote("test", "system", "model")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_decide_next_step_remote_success(self):
+        """Test decide_next_step uses remote when available."""
+        advisor = Advisor(use_remote=True)
+
+        def mock_urlopen(req, timeout=None):
+            # First call: detect endpoint
+            if "/v1/models" in str(getattr(req, "full_url", str(req))):
+                mock_resp = MagicMock()
+                mock_resp.read.return_value = json.dumps({"data": [{"id": "test-model"}]}).encode()
+                mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+                mock_resp.__exit__ = MagicMock(return_value=False)
+                return mock_resp
+            # Second call: chat completion
+            else:
+                mock_resp = MagicMock()
+                mock_resp.read.return_value = json.dumps({
+                    "choices": [{"message": {"content": '{"recommendation": "2", "confidence": 0.9, "reasoning": "remote"}'}}]
+                }).encode()
+                mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+                mock_resp.__exit__ = MagicMock(return_value=False)
+                return mock_resp
+
+        with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+            options = [("model1", None), ("model2", "q4")]
+            decision = await advisor.decide_next_step(
+                model="test/model",
+                failure_reason="OOM",
+                options=options,
+            )
+
+        assert decision["recommendation"] == "2"
+
+
 class TestAdvisorViability:
     """Tests for viability estimation."""
 
@@ -229,6 +369,44 @@ class TestAdvisorViability:
         assert "confidence" in result
         assert result["confidence"] < 0.5
 
+    @pytest.mark.asyncio
+    async def test_estimate_viability_fallback_high_vram(self, advisor):
+        """Test viability fallback with high VRAM (>50GB)."""
+        with patch("llm_orchestrator.advisor.pipeline", side_effect=Exception("Error")):
+            result = await advisor.estimate_viability(
+                model="Qwen/Qwen3.6-27B-FP8",
+                hardware_vram_gb=95,
+            )
+
+        assert result["viable"] is True  # >50GB heuristic
+
+    @pytest.mark.asyncio
+    async def test_estimate_viability_fallback_low_vram(self, advisor):
+        """Test viability fallback with low VRAM (<50GB)."""
+        with patch("llm_orchestrator.advisor.pipeline", side_effect=Exception("Error")):
+            result = await advisor.estimate_viability(
+                model="Qwen/Qwen3.6-27B-FP8",
+                hardware_vram_gb=24,
+            )
+
+        assert result["viable"] is False  # <=50GB heuristic
+
+    @pytest.mark.asyncio
+    async def test_estimate_viability_pipeline_none(self, advisor):
+        """Test viability when pipeline is None after _ensure_loaded."""
+        advisor.pipeline = None
+        advisor._loading = False
+
+        with patch.object(advisor, "_ensure_loaded", new_callable=AsyncMock) as mock_load:
+            # _ensure_loaded sets pipeline to None (simulating failure)
+            mock_load.side_effect = Exception("Load failed")
+            result = await advisor.estimate_viability(
+                model="test/model",
+                hardware_vram_gb=24,
+            )
+
+        assert "viable" in result
+
 
 class TestAdvisorResponseValidation:
     """Tests for response validation."""
@@ -274,6 +452,14 @@ class TestAdvisorResponseValidation:
         assert validated["confidence"] >= 0
         assert validated["alternatives"] is not None
 
+    def test_validate_decision_exception_falls_back(self, advisor):
+        """Test that _validate_decision falls back on exception."""
+        options = [("M1", None)]
+        decision = {"recommendation": "invalid"}
+
+        validated = advisor._validate_decision(decision, options)
+        assert validated["recommendation"] == "1"
+
 
 class TestAdvisorFallback:
     """Tests for fallback decision logic."""
@@ -300,6 +486,47 @@ class TestAdvisorFallback:
         assert result["recommendation"] == "1"
         assert result["confidence"] == 0.0
         assert result["next_action"] == "escalate"
+
+
+class TestAdvisorParseJson:
+    """Tests for _parse_decision_json."""
+
+    def test_parse_decision_json_no_braces(self, advisor):
+        """Test parsing when no JSON braces found."""
+        options = [("M1", None)]
+        result = advisor._parse_decision_json("just plain text", options)
+        assert result["recommendation"] == "1"
+
+    def test_parse_decision_json_invalid(self, advisor):
+        """Test parsing when JSON is invalid."""
+        options = [("M1", None)]
+        result = advisor._parse_decision_json("{invalid json", options)
+        assert result["recommendation"] == "1"
+
+    def test_parse_decision_json_not_dict(self, advisor):
+        """Test parsing when JSON is not a dict."""
+        options = [("M1", None)]
+        result = advisor._parse_decision_json("[1, 2, 3]", options)
+        assert result["recommendation"] == "1"
+
+
+class TestAdvisorParseViabilityJson:
+    """Tests for _parse_viability_json."""
+
+    def test_parse_viability_json_no_braces(self, advisor):
+        """Test parsing when no JSON braces found."""
+        result = advisor._parse_viability_json("just plain text")
+        assert result is None
+
+    def test_parse_viability_json_invalid(self, advisor):
+        """Test parsing when JSON is invalid."""
+        result = advisor._parse_viability_json("{invalid json")
+        assert result is None
+
+    def test_parse_viability_json_not_dict(self, advisor):
+        """Test parsing when JSON is not a dict."""
+        result = advisor._parse_viability_json("[1, 2, 3]")
+        assert result is None
 
 
 class TestAdvisorCleanup:

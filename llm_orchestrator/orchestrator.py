@@ -190,6 +190,10 @@ class Orchestrator:
                 cmd.extend(["--enable-auto-tool-choice"])
             if "--tool-call-parser" not in args:
                 cmd.extend(["--tool-call-parser", "qwen3_coder"])
+            if "--enable-reasoning" not in args:
+                cmd.extend(["--enable-reasoning"])
+            if "--reasoning-parser" not in args:
+                cmd.extend(["--reasoning-parser", "qwen3"])
 
         # Add custom args
         for key, value in args.items():

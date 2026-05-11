@@ -70,9 +70,22 @@ class ServiceConfig(BaseModel):
 class OrchestratorConfig(BaseModel):
     """Top-level orchestrator configuration."""
 
+    # Backward-compat: single vllm field
     vllm: Optional[ServiceConfig] = Field(
         None,
         description="Configuration for main vLLM service",
+    )
+
+    # Multi-service: ordered dict of service name -> ServiceConfig
+    services: dict[str, ServiceConfig] = Field(
+        default_factory=dict,
+        description="Named service configurations",
+    )
+
+    # Desired state: persist the desired stack state per service
+    desired_state: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Desired state per service (persisted across runs)",
     )
 
     model_config = {
@@ -82,10 +95,28 @@ class OrchestratorConfig(BaseModel):
                     "model": "Qwen/Qwen3.6-27B-FP8",
                     "args": {"--max-num-seqs": 848},
                     "last_successful": "2026-05-07T12:35:00Z",
-                }
+                },
+                "services": {
+                    "vllm": {
+                        "model": "Qwen/Qwen3.6-27B-FP8",
+                        "args": {"--max-num-seqs": 848},
+                    },
+                    "reranker": {
+                        "model": "Qwen/Qwen3-Reranker-0.6B",
+                        "args": {"--max-model-len": 1024},
+                    },
+                },
+                "desired_state": {
+                    "vllm": {"gpus": [0, 1]},
+                    "reranker": {"gpus": [1]},
+                },
             }
         }
     }
+
+    # ------------------------------------------------------------------
+    # Config file paths
+    # ------------------------------------------------------------------
 
     @classmethod
     def config_dir(cls) -> Path:
@@ -99,6 +130,10 @@ class OrchestratorConfig(BaseModel):
         """Get path to working-models.yaml."""
         return cls.config_dir() / "working-models.yaml"
 
+    # ------------------------------------------------------------------
+    # Load / Save
+    # ------------------------------------------------------------------
+
     @classmethod
     def load_from_disk(cls) -> "OrchestratorConfig":
         """Load config from ~/.config/llm-orchestrator/working-models.yaml."""
@@ -110,6 +145,16 @@ class OrchestratorConfig(BaseModel):
         try:
             with open(config_file, "r") as f:
                 data = yaml.safe_load(f) or {}
+
+            # Backward compat: migrate bare vllm key into services if needed
+            if "services" not in data and data.get("vllm"):
+                try:
+                    svc_data = data["vllm"]
+                    if isinstance(svc_data, dict):
+                        data.setdefault("services", {})["vllm"] = svc_data
+                except (TypeError, KeyError):
+                    pass
+
             return cls(**data)
         except Exception as e:
             raise RuntimeError(f"Failed to load config from {config_file}: {e}")
@@ -126,18 +171,32 @@ class OrchestratorConfig(BaseModel):
         except Exception as e:
             raise RuntimeError(f"Failed to save config to {config_file}: {e}")
 
+    def save(self) -> None:
+        """Save config to disk. Alias for save_to_disk()."""
+        self.save_to_disk()
+
+    # ------------------------------------------------------------------
+    # Service config access (backward compat + multi-service)
+    # ------------------------------------------------------------------
+
     def get_service_config(self, service: str) -> Optional[ServiceConfig]:
-        """Get config for a specific service."""
+        """Get config for a specific service.
+
+        Checks the legacy ``vllm`` field first, then the ``services`` dict.
+        """
         if service == "vllm":
             return self.vllm
-        raise ValueError(f"Unknown service: {service}")
+        return self.services.get(service)
 
-    def set_service_config(self, service: str, config: ServiceConfig) -> None:
-        """Set config for a specific service."""
+    def set_service_config(self, service: str, config: Optional[ServiceConfig]) -> None:
+        """Set config for a specific service.
+
+        Writes to both the legacy ``vllm`` field (if service=="vllm")
+        and the ``services`` dict.
+        """
         if service == "vllm":
             self.vllm = config
-        else:
-            raise ValueError(f"Unknown service: {service}")
+        self.services[service] = config
 
     def record_success(
         self,
@@ -159,6 +218,43 @@ class OrchestratorConfig(BaseModel):
         )
         self.set_service_config(service, config)
         self.save_to_disk()
+
+    def list_services(self) -> list[str]:
+        """Return all configured service names (vllm + services dict)."""
+        names: list[str] = []
+        if self.vllm is not None:
+            names.append("vllm")
+        for name in self.services:
+            if name not in names:
+                names.append(name)
+        return names
+
+    # ------------------------------------------------------------------
+    # Desired state helpers
+    # ------------------------------------------------------------------
+
+    def get_desired(self, service: str) -> dict[str, Any]:
+        """Get the persisted desired state for a service.
+
+        Returns an empty dict if nothing is recorded.
+        """
+        return self.desired_state.get(service, {})
+
+    def set_desired(self, service: str, state: dict[str, Any]) -> None:
+        """Set the persisted desired state for a service."""
+        self.desired_state[service] = state
+
+    def clear_desired(self, service: str) -> None:
+        """Remove the desired state for a service."""
+        self.desired_state.pop(service, None)
+
+    def save_desired(self) -> None:
+        """Persist the desired_state to disk immediately."""
+        self.save()
+
+    # ------------------------------------------------------------------
+    # User preferences (unchanged)
+    # ------------------------------------------------------------------
 
     @classmethod
     def preferences_file(cls) -> Path:
