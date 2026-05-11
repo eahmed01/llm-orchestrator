@@ -2,14 +2,21 @@
 
 import asyncio
 import logging
+import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from llm_orchestrator.advisor import Advisor
 from llm_orchestrator.config import OrchestratorConfig
 from llm_orchestrator.model_discovery import ModelDiscovery
 from llm_orchestrator.monitor import Monitor
+from llm_orchestrator.profiles import (
+    Attempt,
+    ProfileStore,
+    get_store,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +41,16 @@ class Orchestrator:
         self.vllm_log_file = vllm_log_file or "/work/fast3/xeio/logs/vllm.log"
         self.config = OrchestratorConfig.load_from_disk()
         self.retry_count = 0
+        self.profiles = get_store()
         # Interface and port for vLLM binding (can be overridden)
         self.interface = "127.0.0.1"
         self.port = 7999
 
     async def start(self) -> bool:
-        """Start the service with advisor-guided retry logic."""
+        """Start the service with advisor-guided retry logic and profile awareness."""
         logger.info(f"Starting {self.service} with model {self.model or 'default'}")
 
-        # Load model if not specified
+        # Load model if not specified — try profile first, then config
         if not self.model:
             saved_config = self.config.get_service_config(self.service)
             if saved_config:
@@ -53,6 +61,37 @@ class Orchestrator:
                 return self._exit_failure(
                     "No model specified and no saved config found"
                 )
+
+        # -- Profile lookup: reuse known-good config for this model --
+        known_good = self.profiles.get_known_good(self.model)
+        if known_good:
+            profile_args = known_good.get("args", {})
+            if not self.args or self.args == {"--max-num-seqs": 848, "--gpu-memory-utilization": 0.92}:
+                # User didn't provide custom args; reuse what worked
+                logger.info(
+                    f"Profile: reusing known-good args for {self.model} "
+                    f"(success on {known_good.get('ts', '?')})"
+                )
+                self.args = {**self.args, **profile_args}
+                if known_good.get("gpus"):
+                    self._gpu_override = known_good["gpus"]
+                if known_good.get("interface"):
+                    self.interface = known_good["interface"]
+                if known_good.get("port"):
+                    self.port = known_good["port"]
+
+        # -- New model: borrow args from similar models if nothing set --
+        if not self.args:
+            similar = self.profiles.find_similar(self.model)
+            if similar:
+                _, sim_profile = similar[0]
+                sim_good = sim_profile.get_known_good()
+                if sim_good and sim_good.get("args"):
+                    logger.info(
+                        f"Profile: borrowing args from similar model "
+                        f"{sim_profile.model} (family match)"
+                    )
+                    self.args = dict(sim_good["args"])
 
         # Validate model exists
         logger.info(f"Validating model {self.model}...")
@@ -66,9 +105,30 @@ class Orchestrator:
         )
         logger.info(f"Viability check: {viability}")
 
+        # Capture env snapshot
+        env_snapshot = self._capture_env()
+
         # Retry loop
+        t_start = asyncio.get_event_loop().time()
         while self.retry_count < self.MAX_RETRIES:
+            t0 = asyncio.get_event_loop().time()
             success, failure_reason = await self._attempt_startup(self.model, self.args)
+            duration = asyncio.get_event_loop().time() - t0
+
+            # Record attempt in profile
+            attempt = Attempt(
+                ts=datetime.now(timezone.utc).isoformat(),
+                model=self.model,
+                args=self.args,
+                env=env_snapshot,
+                gpus=getattr(self, "_gpu_override", []),
+                port=self.port,
+                interface=self.interface,
+                success=success,
+                failure_reason=failure_reason,
+                duration_s=round(duration, 2),
+            )
+            self.profiles.record_attempt(attempt)
 
             if success:
                 logger.info("✓ Startup successful!")
@@ -85,7 +145,15 @@ class Orchestrator:
             )
 
             if self.retry_count >= self.MAX_RETRIES:
-                return self._exit_failure(f"Max retries reached ({self.MAX_RETRIES})")
+                total_time = asyncio.get_event_loop().time() - t_start
+                logger.info(
+                    f"Profile: {self.model} has "
+                    f"{self.profiles.get_profile(self.model).failure_count()} "
+                    f"recorded failures on this host"
+                )
+                return self._exit_failure(
+                    f"Max retries reached ({self.MAX_RETRIES}) in {total_time:.0f}s"
+                )
 
             # Ask advisor what to try next
             fallback_chain = ModelDiscovery.build_fallback_chain(self.model)
@@ -163,6 +231,14 @@ class Orchestrator:
             except Exception:
                 pass
             return False, "monitor_error"
+
+    def _capture_env(self) -> dict[str, str]:
+        """Capture relevant environment variables."""
+        return {
+            k: v for k, v in os.environ.items()
+            if k.startswith(("VLLM_", "CUDA_", "LD_", "HF_"))
+            or k in ("CUDA_VISIBLE_DEVICES", "LD_LIBRARY_PATH", "CUDA_HOME", "PATH")
+        }
 
     def _build_vllm_command(self, model: str, args: dict[str, Any]) -> list[str]:
         """Build vLLM command line."""

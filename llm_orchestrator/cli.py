@@ -1050,6 +1050,141 @@ def history(
     typer.echo("")
 
 
+# ============================================================================
+#  Profiles — host-model keyed knowledge base
+# ============================================================================
+
+from llm_orchestrator.profiles import get_store, ModelProfile
+
+
+def _fmt_profile(profile: ModelProfile, model_col: int = 38) -> list[str]:
+    """Format a single profile for terminal output."""
+    lines: list[str] = []
+    status = "✓ known-good" if profile.has_known_good() else "✗ no success yet"
+    family_tag = f"[{profile.family}]" if profile.family else ""
+    quant_tag = f"[{profile.quantization}]" if profile.quantization else ""
+    size_tag = f"{profile.size_hint}B " if profile.size_hint else ""
+
+    header = f"{profile.model} " f"{family_tag}{quant_tag}{size_tag}{status}"
+    lines.append(f"  {header[:model_col]}")
+
+    if profile.known_good:
+        kg = profile.known_good
+        ts_str = kg.get("ts", "")[:16].replace("T", " ")
+        gpus_str = ", ".join(str(g) for g in kg.get("gpus", [])) or "-"
+        dur_str = f"{kg['duration_s']:.0f}s" if kg.get("duration_s") else ""
+        lines.append(
+            f"    Known-good: {ts_str}  GPUs: {gpus_str}  "
+            f"Port: {kg.get('port', '?')}  Duration: {dur_str}"
+        )
+        args = kg.get("args", {})
+        if args:
+            args_items = []
+            for k, v in list(args.items())[:4]:
+                args_items.append(f"{k}={v}")
+            rest = f" +{len(args) - 4}" if len(args) > 4 else ""
+            lines.append(f"    Args: {' '.join(args_items)}{rest}")
+
+    succ = profile.success_count()
+    fails = profile.failure_count()
+    if succ or fails:
+        lines.append(f"    History: {succ} success, {fails} failures")
+
+    return lines
+
+
+@app.command()
+def profile(
+    model: Annotated[
+        Optional[str],
+        typer.Argument(help="Model ID to show profile for (omit for all)"),
+    ] = None,
+    show_failures: Annotated[
+        bool,
+        typer.Option("--failures", help="Show recent failed attempts"),
+    ] = False,
+) -> None:
+    """Show host-model profiles: what has worked, what has failed.
+
+    Profiles are keyed by host:model and persist across sessions.
+    When you restart a service, the orchestrator reuses the last known-good
+    config automatically — no need to remember args or env vars.
+
+    Examples:
+      llm-orchestrate profile                    # Show all profiles
+      llm-orchestrate profile Qwen/Qwen3.6-27B-FP8  # Show one model
+      llm-orchestrate profile --failures Qwen/Qwen3.6-27B-FP8  # Show failures
+    """
+    store = get_store()
+    stats = store.get_profile_stats()
+
+    typer.echo("")
+    typer.echo("Profile Index (host-model knowledge)")
+    typer.echo("=" * 80)
+    typer.echo(
+        f"  Host: {stats['host']}  |  "
+        f"Profiles: {stats['total_profiles']}  |  "
+        f"Known-good: {stats['with_known_good']}  |  "
+        f"Attempts: {stats['total_attempts']}  |  "
+        f"Success/Fail: {stats['total_successes']}/{stats['total_failures']}"
+    )
+    if stats.get("families"):
+        fam_parts = [f"{k}={v}" for k, v in stats["families"].items()]
+        typer.echo(f"  Families: {', '.join(fam_parts)}")
+    typer.echo(f"  Storage: {stats['path']}")
+    typer.echo("")
+
+    if model:
+        # Show specific profile
+        prof = store.get_profile(model)
+        if not prof:
+            typer.echo(f"  No profile for {model} on this host yet.")
+            typer.echo("")
+            # Check similar
+            similar = store.find_similar(model)
+            if similar:
+                typer.echo("  Similar models with profiles:")
+                for _, sim in similar[:5]:
+                    lines = _fmt_profile(sim)
+                    typer.echo("\n".join(lines))
+            typer.echo("")
+            return
+
+        typer.echo(f"\n  Profile for: {model}")
+        typer.echo("  " + "-" * 76)
+        lines = _fmt_profile(prof)
+        typer.echo("\n".join(lines))
+
+        if show_failures:
+            recent_fails = prof.get_recent_attempts(limit=5, only_failures=True)
+            if recent_fails:
+                typer.echo("\n  Recent failures:")
+                for att in recent_fails:
+                    ts = att.ts[:16].replace("T", " ")
+                    reason = att.failure_reason or "unknown"
+                    typer.echo(f"    {ts}  {reason[:60]}")
+
+        typer.echo("")
+    else:
+        # Show all profiles
+        all_profiles = store.get_all_profiles()
+        if not all_profiles:
+            typer.echo("  No profiles yet. Run a model to build profiles.")
+            typer.echo("")
+            return
+
+        # Sort: known-good first, then by model name
+        sorted_profiles = sorted(
+            all_profiles.values(),
+            key=lambda p: (not p.has_known_good(), p.model),
+        )
+
+        for prof in sorted_profiles:
+            lines = _fmt_profile(prof)
+            typer.echo("\n".join(lines))
+            typer.echo("")
+
+
 def main() -> None:
     """Main entry point."""
     app()

@@ -4,12 +4,15 @@ __version__ = "0.2.0"
 
 __all__ = [
     "Advisor",
+    "Attempt",
     "EnvironmentDetector",
+    "ModelProfile",
     "Monitor",
     "Orchestrator",
     "OrchestratorConfig",
     "Plan",
     "PlanStep",
+    "ProfileStore",
     "ServiceConfig",
     "ServiceManager",
     "ServiceResult",
@@ -20,6 +23,7 @@ __all__ = [
     "StackSnapshot",
     "UserPreferences",
     "default_stack_configs",
+    "get_store",
     "record_event",
     "read_events",
     "history_stats",
@@ -31,9 +35,15 @@ def __getattr__(name: str):
     if name == "Advisor":
         from llm_orchestrator.advisor import Advisor as _Advisor
         return _Advisor
+    elif name == "Attempt":
+        from llm_orchestrator.profiles import Attempt as _Attempt
+        return _Attempt
     elif name == "EnvironmentDetector":
         from llm_orchestrator.environment import EnvironmentDetector as _EnvironmentDetector
         return _EnvironmentDetector
+    elif name == "ModelProfile":
+        from llm_orchestrator.profiles import ModelProfile as _ModelProfile
+        return _ModelProfile
     elif name == "Monitor":
         from llm_orchestrator.monitor import Monitor as _Monitor
         return _Monitor
@@ -46,6 +56,9 @@ def __getattr__(name: str):
     elif name in ("Plan", "PlanStep", "StackPlanner"):
         import llm_orchestrator.planner as _planner
         return getattr(_planner, name)
+    elif name in ("ProfileStore", "get_store"):
+        import llm_orchestrator.profiles as _profiles
+        return getattr(_profiles, name)
     elif name in ("ServiceManager", "ServiceResult"):
         import llm_orchestrator.service as _service
         return getattr(_service, name)
